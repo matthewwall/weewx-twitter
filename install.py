@@ -1,6 +1,7 @@
 # $Id: install.py 1491 2016-05-15 23:00:28Z mwall $
 # installer for Twitter
 # Copyright 2014-2020 Matthew Wall
+# Distributed under the terms of the GNU Public License (GPLv3)
 
 from weecfg.extension import ExtensionInstaller
 
