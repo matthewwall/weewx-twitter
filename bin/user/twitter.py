@@ -1,5 +1,4 @@
-# $Id: twitter.py 1491 2016-05-15 23:00:28Z mwall $
-# Copyright 2014 Matthew Wall
+# Copyright 2014-2020 Matthew Wall
 """
 Tweet weather data
 
@@ -71,11 +70,46 @@ use the unit_system option:
 Possible values include US, METRIC, or METRICWX.
 """
 
-import Queue
+try:
+    # Python 3
+    import queue
+except ImportError:
+    # Python 2
+    import Queue as queue
 import re
 import sys
-import syslog
 import time
+
+try:
+    # Test for new-style weewx logging by trying to import weeutil.logger
+    import weeutil.logger
+    import logging
+    log = logging.getLogger(__name__)
+
+    def logdbg(msg):
+        log.debug(msg)
+
+    def loginf(msg):
+        log.info(msg)
+
+    def logerr(msg):
+        log.error(msg)
+
+except ImportError:
+    # Old-style weewx logging
+    import syslog
+
+    def logmsg(level, msg):
+        syslog.syslog(level, 'Twitter: %s' % msg)
+
+    def logdbg(msg):
+        logmsg(syslog.LOG_DEBUG, msg)
+
+    def loginf(msg):
+        logmsg(syslog.LOG_INFO, msg)
+
+    def logerr(msg):
+        logmsg(syslog.LOG_ERR, msg)
 
 import weewx
 import weewx.restx
@@ -84,23 +118,13 @@ from weeutil.weeutil import to_bool, accumulateLeaves
 
 from twython import Twython, TwythonError, TwythonAuthError, TwythonRateLimitError
 
-VERSION = "0.13"
+VERSION = "0.15"
 
 if weewx.__version__ < "3":
     raise weewx.UnsupportedFeature("weewx 3 is required, found %s" %
                                    weewx.__version__)
 
-def logmsg(level, msg):
-    syslog.syslog(level, 'restx: Twitter: %s' % msg)
 
-def logdbg(msg):
-    logmsg(syslog.LOG_DEBUG, msg)
-
-def loginf(msg):
-    logmsg(syslog.LOG_INFO, msg)
-
-def logerr(msg):
-    logmsg(syslog.LOG_ERR, msg)
 
 def _format(label, fmt, datum):
     s = fmt % datum if datum is not None else "None"
@@ -154,15 +178,10 @@ class Twitter(weewx.restx.StdRESTbase):
         """
         super(Twitter, self).__init__(engine, config_dict)
         loginf('service version is %s' % VERSION)
-        try:
-            site_dict = config_dict['StdRESTful']['Twitter']
-            site_dict = accumulateLeaves(site_dict, max_level=1)
-            site_dict['app_key']
-            site_dict['app_key_secret']
-            site_dict['oauth_token']
-            site_dict['oauth_token_secret']
-        except KeyError, e:
-            logerr("Data will not be posted: Missing option %s" % e)
+
+        site_dict = weewx.restx.get_site_dict(config_dict, 'Twitter', 'app_key', 'app_key_secret',
+                                              'oauth_token', 'oauth_token_secret')
+        if site_dict is None:
             return
 
         # default the station name
@@ -171,7 +190,7 @@ class Twitter(weewx.restx.StdRESTbase):
         # if a unit system was specified, get the weewx constant for it.
         # do it here so a bogus unit system will cause weewx to die
         # immediately, not simply cause the twitter thread to crap out.
-        usn = site_dict.get('unit_system', None)
+        usn = site_dict.get('unit_system')
         if usn is not None:
             site_dict['unit_system'] = weewx.units.unit_constants[usn]
             loginf('units will be converted to %s' % usn)
@@ -188,34 +207,28 @@ class Twitter(weewx.restx.StdRESTbase):
             binding = ','.join(binding)
         loginf('binding is %s' % binding)
 
-        data_queue = Queue.Queue()
-        try:
-            data_thread = TwitterThread(self.loop_queue, **site_dict)
-        except weewx.ViolatedPrecondition as e:
-            loginf("Data will not be posted: %s" % e)
-            return
+        self.data_queue = queue.Queue()
+        data_thread = TwitterThread(self.data_queue, **site_dict)
         data_thread.start()
 
         if 'loop' in binding.lower():
-            self.loop_queue = data_queue
-            self.loop_thread = data_thread
             self.bind(weewx.NEW_LOOP_PACKET, self.handle_new_loop)
         if 'archive' in binding.lower():
-            self.archive_queue = data_queue
-            self.archive_thread = data_thread
             self.bind(weewx.NEW_ARCHIVE_RECORD, self.handle_new_archive)
 
         loginf("Data will be tweeted for %s" % site_dict['station'])
 
     def handle_new_loop(self, event):
-        data = {'binding': 'loop'}
-        data.update(event.packet)
-        self.loop_queue.put(data)
+        # Make a copy... we will modify it
+        packet = dict(event.packet)
+        packet['binding'] = 'loop'
+        self.data_queue.put(packet)
 
     def handle_new_archive(self, event):
-        data = {'binding': 'archive'}
-        data.update(event.packet)
-        self.archive_queue.put(data)
+        # Make a copy... we will modify it
+        record = dict(event.record)
+        record['binding'] = 'archive'
+        self.data_queue.put(record)
 
 class TwitterThread(weewx.restx.RESTThread):
     def __init__(self, queue, 
@@ -223,7 +236,7 @@ class TwitterThread(weewx.restx.RESTThread):
                  station, format, format_None, ordinals, format_utc=True,
                  unit_system=None, skip_upload=False,
                  log_success=True, log_failure=True,
-                 post_interval=None, max_backlog=sys.maxint, stale=None,
+                 post_interval=None, max_backlog=sys.maxsize, stale=None,
                  timeout=60, max_tries=3, retry_wait=5):
         super(TwitterThread, self).__init__(queue,
                                             protocol_name='Twitter',
@@ -299,9 +312,9 @@ class TwitterThread(weewx.restx.RESTThread):
                                   self.oauth_token, self.oauth_token_secret)
                 twitter.update_status(status=msg)
                 return
-            except TwythonAuthError, e:
+            except TwythonAuthError as e:
                 raise weewx.restx.FailedPost("Authorization failed: %s" % e)
-            except (TwythonError, TwythonRateLimitError), e:
+            except (TwythonError, TwythonRateLimitError) as e:
                 logerr("Failed attempt %d of %d: %s" %
                        (ntries, self.max_tries, e))
                 logdbg("Waiting %d seconds before retry" % self.retry_wait)

@@ -1,16 +1,18 @@
 # $Id: install.py 1491 2016-05-15 23:00:28Z mwall $
 # installer for Twitter
-# Copyright 2014 Matthew Wall
+# Copyright 2014-2020 Matthew Wall
 
-from setup import ExtensionInstaller
+from weecfg.extension import ExtensionInstaller
+
 
 def loader():
     return TwitterInstaller()
 
+
 class TwitterInstaller(ExtensionInstaller):
     def __init__(self):
         super(TwitterInstaller, self).__init__(
-            version="0.13",
+            version="0.15",
             name='twitter',
             description='tweet weather data',
             author="Matthew Wall",
@@ -24,4 +26,4 @@ class TwitterInstaller(ExtensionInstaller):
                         'oauth_token': 'OAUTH_TOKEN',
                         'oauth_token_secret': 'OAUTH_TOKEN_SECRET'}}},
             files=[('bin/user', ['bin/user/twitter.py'])]
-            )
+        )
