@@ -3,15 +3,19 @@ Copyright 2014 Matthew Wall
 
 Installation instructions:
 
-0) install twython
+1) download
+
+wget -O weewx-twitter.zip https://github.com/matthewwall/weewx-twitter/archive/master.zip
+
+2) install twython
 
 sudo pip install twython
 
-1) run the installer:
+3) run the installer:
 
-wee_extension --install weewx-twitter.tgz
+wee_extension --install weewx-twitter.zip
 
-2) modify weewx.conf:
+4) modify weewx.conf:
 
 [StdRESTful]
     [[Twitter]]
@@ -20,7 +24,7 @@ wee_extension --install weewx-twitter.tgz
         oauth_token = OAUTH_TOKEN
         oauth_token_secret = OAUTH_TOKEN_SECRET
 
-4) restart weewx
+5) restart weewx
 
 sudo /etc/init.d/weewx stop
 sudo /etc/init.d/weewx start
