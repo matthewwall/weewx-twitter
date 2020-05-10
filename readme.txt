@@ -1,5 +1,6 @@
 twitter - weewx extension that sends data to Twitter
-Copyright 2014 Matthew Wall
+Copyright 2014-2020 Matthew Wall
+Distributed under the terms of the GNU Public License (GPLv3)
 
 Installation instructions:
 
